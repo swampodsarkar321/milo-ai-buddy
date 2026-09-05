@@ -29,7 +29,8 @@ from tools import files as file_tools
 from tools import pc as pc_tools
 from tools import system as system_tools
 from tools import vision as vision_tools
-from tools.reminders import ReminderStore, parse_reminder_time, parse_schedule
+from tools.reminders import (ReminderStore, parse_interval,
+                               parse_reminder_time, parse_schedule)
 from tools.screenshot import take_screenshot
 from tools.todo import TodoStore
 
@@ -513,7 +514,21 @@ class Assistant:
             res = system_tools.get_current_time()
             return {"reply": res["message"], "tool": "get_current_time", "tool_result": res}
 
-        # reminders: recurring schedules first ("every day…", "protodin…")
+        # reminders: interval first ("every 2 hours…"), then daily/weekly
+        if re.search(r"every\s+\d+|\d+\s*(minit|minute|ghonta|hour)s?\s*(por|interval)", low):
+            sched = parse_interval(text)
+            if sched:
+                rid = self.reminders.create_schedule(
+                    sched["text"], "interval", 0, 0,
+                    interval_min=sched["minutes"])
+                every = (f"every {sched['minutes']} minutes" if sched["minutes"] < 60
+                         else f"every {sched['minutes'] // 60} hours")
+                reply = f"Got it — {every}, I'll remind you."
+                self._log_turn(text, reply)
+                self.routines.log(text, "create_schedule")
+                return {"reply": reply, "tool": "create_schedule",
+                        "tool_result": {"ok": True, "id": rid}}
+        # reminders: recurring schedules ("every day…", "protodin…")
         if re.search(r"every|daily|protodin|protidin|monday|tuesday|wednesday|"
                      r"thursday|friday|saturday|sunday|sombar|mongolbar|budhbar|"
                      r"brihospotibar|shukrobar|shonibar|robibar|jumma", low):
@@ -548,6 +563,37 @@ class Assistant:
         if m:
             res = self.reminders.delete_schedule(int(m.group(1)))
             return {"reply": res["message"], "tool": None, "tool_result": res}
+
+        # reminders: one-shot list + cancel ("my reminders", "cancel reminder 2")
+        if re.search(r"my reminders|reminder (list|gulo)|reminders (dekhao|bolo|ache)", low):
+            items = self.reminders.upcoming(10)
+            if not items:
+                reply = "No upcoming reminders."
+            else:
+                bits = []
+                for i, r in enumerate(items[:5], 1):
+                    try:
+                        when = datetime.fromtimestamp(r["due_at"]).strftime("%I:%M %p, %b %d")
+                    except Exception:
+                        when = ""
+                    bits.append(f"{i}. {r['text']} ({when})")
+                reply = "Reminders: " + " | ".join(bits)
+            return {"reply": reply, "tool": None, "tool_result": None}
+        m = re.match(r"(?:cancel|delete|stop|bondho koro|remove)\s+(?:reminder|reminders)\s+(\d+)", low)
+        if m:
+            res = self.reminders.delete_upcoming(int(m.group(1)))
+            return {"reply": res["message"], "tool": None, "tool_result": res}
+
+        # screen time ("how much screen time?")
+        if re.search(r"screen\s*time|koto(khon|kkhon).*(screen|mobile|pc)|screen report", low):
+            try:
+                from core.health import today_stats, fmt_dur
+                s, b = today_stats(self.db)
+                msg = (f"Today: {fmt_dur(s)} screen time, {b} breaks."
+                       if s else "No screen time tracked yet today.")
+            except Exception:
+                msg = "No screen time tracked yet today."
+            return {"reply": msg, "tool": None, "tool_result": None}
 
         # reminders: "remind me at 8 pm to ..."
         if "remind me" in low:

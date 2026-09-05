@@ -62,6 +62,13 @@ class PrivacySettings:
 
 
 @dataclass
+class HealthSettings:
+    """Screen-time health guard (local only, toggleable)."""
+    enabled: bool = True
+    break_minutes: int = 60            # nudge after this much continuous use
+
+
+@dataclass
 class PersonalitySettings:
     name: str = "Milo"
     traits: str = "Friendly, helpful, slightly playful, calm, intelligent."
@@ -93,6 +100,7 @@ class AppConfig:
     voice: VoiceSettings = field(default_factory=VoiceSettings)
     appearance: AppearanceSettings = field(default_factory=AppearanceSettings)
     privacy: PrivacySettings = field(default_factory=PrivacySettings)
+    health: HealthSettings = field(default_factory=HealthSettings)
     personality: PersonalitySettings = field(default_factory=PersonalitySettings)
     brand: BrandSettings = field(default_factory=BrandSettings)
     mascot: MascotSettings = field(default_factory=MascotSettings)
@@ -125,7 +133,7 @@ class AppConfig:
             try:
                 raw = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
                 for section in ("ai", "voice", "appearance", "privacy",
-                                "personality", "brand", "mascot"):
+                                "health", "personality", "brand", "mascot"):
                     if section in raw and isinstance(raw[section], dict):
                         target = getattr(cfg, section)
                         for k, v in raw[section].items():

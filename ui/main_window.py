@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (QHBoxLayout, QLabel, QListWidget, QMessageBox,
 
 from core.assistant import Assistant
 from core.awareness import Awareness
+from core.health import ScreenTime, fmt_dur, today_stats
 from core.state import AssistantState
 from voice.listener import Listener
 from voice.speech_to_text import SpeechToText
@@ -122,6 +123,10 @@ class MainWindow(QMainWindow):
             self.aware.db = db  # enables mood follow-ups (same SQLite)
         except Exception:
             pass
+        self.screen = ScreenTime(
+            db,
+            break_minutes=int(getattr(config.health, "break_minutes", 60) or 60),
+            enabled=bool(getattr(config.health, "enabled", True)))
         mic_idx = config.voice.microphone_index
         self.listener = Listener(device=None if mic_idx is None or mic_idx < 0 else mic_idx)
         self.stt = SpeechToText(model_size=config.voice.stt_model,
@@ -266,6 +271,11 @@ class MainWindow(QMainWindow):
         self._routine_timer.timeout.connect(self._routine_tick)
         self._routine_timer.start(600000)
         QTimer.singleShot(120000, self._routine_tick)
+
+        # --- screen-time health guard (local, 60s steps) ---
+        self._health_timer = QTimer(self)
+        self._health_timer.timeout.connect(self._health_tick)
+        self._health_timer.start(60000)
 
         # --- wake word ---
         self.wake = WakeWordListener(wake_word=config.voice.wake_word,
@@ -505,43 +515,31 @@ class MainWindow(QMainWindow):
             self.mascot.set_size_name(getattr(self.config.mascot, "size", "medium"))
 
     def _on_buddy_changed(self, data: dict):
-        """Apply buddy page changes instantly without Save."""
+        """Buddy page changes: persist + apply instantly (no Save needed)."""
         try:
-            if self.mascot:
-                if data.get("size"):
-                    self.mascot.set_size_name(data["size"])
-                if "bubble" in data:
-                    self.mascot.set_bubble_style(data["bubble"],
-                                                 self.config.appearance.accent or ACCENT)
-                # enabled/tray handled by _apply_mascot_prefs on next settings save
-                # but we can live-apply enabled
-                if "enabled" in data:
-                    if data["enabled"] and not self.mascot:
-                        self._spawn_mascot()
-                    elif not data["enabled"] and self.mascot:
-                        self.mascot.close()
-                        self.mascot = None
+            for k in ("enabled", "tray", "size", "bubble"):
+                if k in data:
+                    setattr(self.config.mascot, k, data[k])
+            if isinstance(data.get("health"), dict):
+                h = data["health"]
+                if "enabled" in h:
+                    self.config.health.enabled = bool(h["enabled"])
+                if "break_minutes" in h:
+                    try:
+                        self.config.health.break_minutes = int(h["break_minutes"])
+                    except Exception:
+                        pass
+            self.config.save()
         except Exception:
             pass
-        want = bool(getattr(self.config.mascot, "enabled", True))
-        if want and not self.mascot:
-            self._spawn_mascot()
-        elif not want and self.mascot:
-            try:
-                self.mascot.close()
-            finally:
-                self.mascot = None
-        if self.mascot:
-            try:
-                self.mascot.set_accent(self.config.appearance.accent or ACCENT)
-            except Exception:
-                pass
-            try:
-                self.mascot.set_bubble_style(getattr(self.config.mascot, "bubble", "auto"),
-                                             self.config.appearance.accent or ACCENT)
-            except Exception:
-                pass
-            self.mascot.set_size_name(getattr(self.config.mascot, "size", "medium"))
+        try:
+            self.screen.enabled = bool(getattr(self.config.health, "enabled", True))
+            self.screen.break_minutes = int(
+                getattr(self.config.health, "break_minutes", 60) or 60)
+        except Exception:
+            pass
+        self._apply_mascot_prefs()
+        self._refresh_buddy()
 
     def _tray_show(self):
         try:
@@ -595,8 +593,43 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentIndex(i)
         if self.pages_names[i] == "Home":
             self.refresh_feed()
+        elif self.pages_names[i] == "Buddy":
+            self._refresh_buddy()
         elif self.pages_names[i] == "Settings":
             self.settings_page.load_config(self.config)
+
+    def _refresh_buddy(self):
+        """Push live buddy state (hunger/mood/health) into the Buddy page."""
+        try:
+            hunger, mood = 0.0, "IDLE"
+            if self.mascot:
+                hunger = float(getattr(self.mascot, "hunger", 0.0) or 0.0)
+                mood = getattr(self.mascot, "mood", "IDLE") or "IDLE"
+            try:
+                s, b = today_stats(self.db)
+                health_line = f"Today: {fmt_dur(s)} screen time • {b} breaks"
+            except Exception:
+                health_line = ""
+            self.buddy_page.refresh(hunger, mood, health_line)
+        except Exception:
+            pass
+
+    # ---------- screen-time health tick (fast local work, GUI thread OK) ----------
+    def _health_tick(self):
+        try:
+            msg = self.screen.tick()
+        except Exception:
+            msg = None
+        if msg and self.mascot:
+            try:
+                self.mascot.say(msg[:160], ms=8000)
+                try:
+                    if self.mascot.jump_v == 0 and self.mascot.jump_y == 0:
+                        self.mascot.jump_v = -5.0
+                except Exception:
+                    pass
+            except Exception:
+                pass
 
     # ---------- Alexa-style activity feed ----------
     def refresh_feed(self):

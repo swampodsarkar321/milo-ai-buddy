@@ -102,10 +102,14 @@ class ReminderStore:
 
     # ---------- recurring schedules ----------
     def create_schedule(self, text: str, kind: str, hour: int,
-                        minute: int, weekday: int = -1) -> int:
-        """kind: 'daily' | 'weekly'. Next occurrence computed on tick."""
+                        minute: int, weekday: int = -1,
+                        interval_min: int = 0) -> int:
+        """kind: 'daily' | 'weekly' | 'interval' (every N minutes)."""
         now = datetime.now()
-        nxt = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if kind == "interval":
+            nxt = now + timedelta(minutes=max(1, interval_min))
+        else:
+            nxt = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
         if kind == "daily" and nxt <= now:
             nxt += timedelta(days=1)
         if kind == "weekly":
@@ -116,16 +120,17 @@ class ReminderStore:
             nxt = cand
         cur = self.db.execute(
             "INSERT INTO reminders (text, due_at, done, created_at,"
-            " repeat, repeat_day, last_fired)"
-            " VALUES (?,?,0,?,?,?,?)",
+            " repeat, repeat_day, last_fired, interval_min)"
+            " VALUES (?,?,0,?,?,?,?,?)",
             (text.strip(), nxt.timestamp(), time.time(),
-             kind, weekday, ""))
+             kind, weekday, "", int(interval_min)))
         return int(cur.lastrowid)
 
     def schedules(self) -> list[dict]:
         try:
             rows = self.db.query(
-                "SELECT * FROM reminders WHERE repeat IN ('daily','weekly')"
+                "SELECT * FROM reminders"
+                " WHERE repeat IN ('daily','weekly','interval')"
                 " ORDER BY repeat_day, due_at")
             return [dict(r) for r in rows]
         except Exception:
@@ -139,7 +144,8 @@ class ReminderStore:
         return {"ok": True, "message": "Schedule cancelled."}
 
     def due_schedules(self, now: datetime | None = None) -> list[dict]:
-        """Schedules whose time arrived and haven't fired today. Marks them."""
+        """Schedules whose time arrived. Daily/weekly fire once a day;
+        intervals fire every N minutes. Marks/advances each. Never raises."""
         now = now or datetime.now()
         today = now.strftime("%Y-%m-%d")
         fired: list[dict] = []
@@ -149,13 +155,26 @@ class ReminderStore:
                     due = datetime.fromtimestamp(r["due_at"])
                 except Exception:
                     continue
-                if due > now or (r.get("last_fired") or "") == today:
+                if due > now:
                     continue
-                if r.get("repeat") == "weekly" and r.get("repeat_day", -1) != now.weekday():
+                kind = r.get("repeat") or ""
+                if kind == "interval":
+                    step = max(1, int(r.get("interval_min") or 60))
+                    nxt = due
+                    while nxt <= now:
+                        nxt += timedelta(minutes=step)
+                    fired.append(dict(r))
+                    self.db.execute(
+                        "UPDATE reminders SET due_at=?, last_fired=? WHERE id=?",
+                        (nxt.timestamp(), today, r["id"]))
+                    continue
+                if (r.get("last_fired") or "") == today:
+                    continue
+                if kind == "weekly" and r.get("repeat_day", -1) != now.weekday():
                     continue
                 fired.append(dict(r))
                 # advance to next occurrence + stamp today
-                if r.get("repeat") == "daily":
+                if kind == "daily":
                     nxt = due + timedelta(days=1)
                     while nxt <= now:
                         nxt += timedelta(days=1)
@@ -169,6 +188,40 @@ class ReminderStore:
         except Exception:
             pass
         return fired
+
+    def delete_upcoming(self, num: int) -> dict:
+        """Delete the Nth one-shot upcoming reminder (1-based as listed)."""
+        items = self.upcoming(50)
+        if num < 1 or num > len(items):
+            return {"ok": False, "message": "Which number? Say 'my reminders' first."}
+        self.db.execute("DELETE FROM reminders WHERE id=?", (items[num - 1]["id"],))
+        return {"ok": True, "message": "Reminder cancelled."}
+
+
+def parse_interval(text: str) -> dict | None:
+    """'remind me every 2 hours to drink water' / 'proti 30 minit por por'.
+
+    Returns {'kind':'interval','minutes':N,'text':msg} or None.
+    """
+    t = text.translate(BN_DIGITS)
+    low = t.lower()
+    m = re.search(r"every\s+(\d+)\s*(minutes?|minits?|hours?|ghonta|hrs?)", low)
+    if not m:
+        m = re.search(r"(\d+)\s*(minit|minute|ghonta|hour)s?\s*(por\s*por|porpor|interval)",
+                      low)
+    if not m:
+        return None
+    n, unit = int(m.group(1)), m.group(2)
+    minutes = n * 60 if unit.startswith(("hour", "ghonta", "hr")) else n
+    if not (1 <= minutes <= 24 * 60):
+        return None
+    msg = re.sub(r"(?i)remind me|mone koriye (dio|diyo|dao)|please", "", t)
+    msg = re.sub(r"(?i)every\s+\d+\s*(minutes?|minits?|hours?|ghonta|hrs?)", "", msg)
+    msg = re.sub(r"(?i)\d+\s*(minit|minute|ghonta|hour)s?\s*(por\s*por|porpor|interval)?", "", msg)
+    msg = re.sub(r"(?i)\b(to|about|je|jonno)\b", "", msg)
+    msg = " ".join(msg.split()).strip(" -:,")
+    return {"kind": "interval", "minutes": minutes,
+            "text": msg or "Recurring reminder"}
 
 
 def parse_hm(text: str) -> tuple[int, int] | None:

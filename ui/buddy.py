@@ -78,6 +78,19 @@ class BuddyPage(QWidget):
         feed.clicked.connect(self.feed_requested.emit)
         card.addWidget(feed)
 
+        # ---- health card ----
+        hcard = self._section(col, "♥", "Health guard",
+                              "Break reminders when screen time runs long.")
+        self.health_enabled = self._checkrow(
+            hcard, "Watch my screen time",
+            "Gentle bubble nudges after long continuous use. Idle time doesn't count.")
+        row = self._row(hcard, "Break every")
+        seg, self.health_break_grp, _ = self._segmented(hcard, ["30 min", "60 min", "90 min"])
+        row.addLayout(seg, 1)
+        self.health_today = QLabel("Today: …")
+        self.health_today.setStyleSheet("color:#8B93C9; font-size:12.5px;")
+        hcard.addWidget(self.health_today)
+
         # ---- look card ----
         look = self._section(col, "◐", "Look & behaviour", "Make it yours.")
         self.buddy_enabled = self._checkrow(
@@ -94,10 +107,11 @@ class BuddyPage(QWidget):
         row.addLayout(bseg, 1)
 
         # any control change -> emit full buddy dict
-        for grp in (self.buddy_size_grp, self.bubble_grp):
+        for grp in (self.buddy_size_grp, self.bubble_grp, self.health_break_grp):
             grp.buttonClicked.connect(lambda _b=None: self._emit())
         self.buddy_enabled.toggled.connect(lambda _c=False: self._emit())
         self.buddy_tray.toggled.connect(lambda _c=False: self._emit())
+        self.health_enabled.toggled.connect(lambda _c=False: self._emit())
 
     # ================= builders (compact copies of settings style) =================
     def _section(self, col: QVBoxLayout, icon: str, title: str, desc: str) -> QVBoxLayout:
@@ -183,6 +197,10 @@ class BuddyPage(QWidget):
             "tray": self.buddy_tray.isChecked(),
             "size": ["small", "medium", "large"][self.buddy_size_grp.checkedId()],
             "bubble": ["auto", "white", "accent"][self.bubble_grp.checkedId()],
+            "health": {
+                "enabled": self.health_enabled.isChecked(),
+                "break_minutes": [30, 60, 90][self.health_break_grp.checkedId()],
+            },
         })
 
     def load_config(self, cfg) -> None:
@@ -192,8 +210,12 @@ class BuddyPage(QWidget):
         self.buddy_size_grp.button(size_map.get(cfg.mascot.size, 1)).setChecked(True)
         bub_map = {"auto": 0, "white": 1, "accent": 2}
         self.bubble_grp.button(bub_map.get(getattr(cfg.mascot, "bubble", "auto"), 0)).setChecked(True)
+        self.health_enabled.setChecked(bool(getattr(cfg.health, "enabled", True)))
+        brk = int(getattr(cfg.health, "break_minutes", 60) or 60)
+        self.health_break_grp.button({30: 0, 60: 1, 90: 2}.get(brk, 1)).setChecked(True)
 
-    def refresh(self, hunger: float = 0.0, mood: str = "IDLE") -> None:
+    def refresh(self, hunger: float = 0.0, mood: str = "IDLE",
+                health_line: str = "") -> None:
         try:
             self.hunger_bar.setValue(int(max(0, min(100, hunger))))
         except Exception:
@@ -209,3 +231,7 @@ class BuddyPage(QWidget):
             self.hunger_line.setText("Getting a little peckish.")
         else:
             self.hunger_line.setText("Full and happy.")
+        try:
+            self.health_today.setText(health_line or "Today: …")
+        except Exception:
+            pass

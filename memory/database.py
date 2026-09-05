@@ -23,7 +23,13 @@ CREATE TABLE IF NOT EXISTS reminders (
     created_at REAL,
     repeat TEXT DEFAULT '',
     repeat_day INTEGER DEFAULT -1,
-    last_fired TEXT DEFAULT ''
+    last_fired TEXT DEFAULT '',
+    interval_min INTEGER DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS health_day (
+    day TEXT PRIMARY KEY,
+    active_secs INTEGER DEFAULT 0,
+    breaks INTEGER DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS chat_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -70,7 +76,8 @@ class Database:
                     self._conn.execute("PRAGMA table_info(reminders)").fetchall()}
             for col, ddl in (("repeat", "TEXT DEFAULT ''"),
                              ("repeat_day", "INTEGER DEFAULT -1"),
-                             ("last_fired", "TEXT DEFAULT ''")):
+                             ("last_fired", "TEXT DEFAULT ''"),
+                             ("interval_min", "INTEGER DEFAULT 0")):
                 if col not in cols:
                     self._conn.execute(f"ALTER TABLE reminders ADD COLUMN {col} {ddl}")
             with self._conn:
