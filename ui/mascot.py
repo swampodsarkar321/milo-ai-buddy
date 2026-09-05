@@ -81,28 +81,54 @@ class MascotBubble(QLabel):
         except Exception:
             return 124, 92, 255
 
+    @staticmethod
+    def _mix(a: str, b: str, amt: float) -> str:
+        """Solid mix of two hex colours (no alpha -> same on every PC).
+
+        amt=0 -> a, amt=1 -> b. Used so the bubble never depends on
+        compositor transparency (which washes out white on some GPUs).
+        """
+        def _h(v: str) -> tuple[int, int, int]:
+            v = v.strip().lstrip("#")
+            if len(v) == 3:
+                v = "".join(c * 2 for c in v)
+            try:
+                return int(v[0:2], 16), int(v[2:4], 16), int(v[4:6], 16)
+            except Exception:
+                return 11, 17, 41
+        ar, ag, ab = _h(a)
+        br, bg_, bb = _h(b)
+        t = max(0.0, min(1.0, amt))
+        r = int(ar + (br - ar) * t)
+        g = int(ag + (bg_ - ag) * t)
+        bl = int(ab + (bb - ab) * t)
+        return f"#{r:02X}{g:02X}{bl:02X}"
+
     def _restyle(self, tint: str):
         self._tint = tint
         if self._mode == "white":
-            bg, border, color = "#141B3D", "#3A4470", "#FFFFFF"
+            bg, border, color = "#0B1129", "#8B93C9", "#FFFFFF"
         elif self._mode == "accent":
-            r, g, b = self._hex_to_rgb(getattr(self, "_accent", "#7C5CFF"))
-            bg, border, color = f"rgba({r},{g},{b},58)", getattr(
-                self, "_accent", "#7C5CFF"), "#FFFFFF"
-        else:  # auto: mood-tinted pill, always high contrast
-            r, g, b = self._hex_to_rgb(tint)
-            bg = f"rgba({r},{g},{b},52)"
+            acc = getattr(self, "_accent", "#7C5CFF")
+            bg, border, color = self._mix(acc, "#0B1129", 0.78), acc, "#FFFFFF"
+        else:  # auto: dark mood-tinted SOLID pill — readable on any wallpaper
+            bg = self._mix(tint, "#0B1129", 0.74)
             border, color = tint, "#FFFFFF"
         self.setStyleSheet(
             f"background:{bg}; color:{color};"
             f"border:2px solid {border};"
-            "border-radius:14px; padding:9px 16px;"
-            "font-size:13.5px; font-weight:800;")
+            "border-radius:14px; padding:10px 18px;"
+            "font-size:14px; font-weight:800;")
 
     def show_text(self, text: str, tint: str = "#7C5CFF"):
         self._restyle(tint)
         self.setText(text)
         self.adjustSize()
+        # re-assert transparency every show (some drivers drop it)
+        try:
+            self.setAttribute(Qt.WA_TranslucentBackground, True)
+        except Exception:
+            pass
         self.show()
         self.raise_()
 
