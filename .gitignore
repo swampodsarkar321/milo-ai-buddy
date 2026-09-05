@@ -1,0 +1,11 @@
+# Secrets + local runtime data — never commit.
+.env
+data/*
+!data/.gitkeep
+data/shot_*.png
+__pycache__/
+*.pyc
+venv/
+dist/
+build/
+*.spec

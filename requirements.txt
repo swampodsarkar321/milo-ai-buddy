@@ -1,0 +1,20 @@
+# --- GUI ---
+PySide6>=6.6
+
+# --- Voice ---
+faster-whisper>=1.0
+sounddevice>=0.4.6
+numpy>=1.26
+edge-tts>=6.1.9
+pygame>=2.5
+
+# --- AI / network (plain requests; enforced timeouts, no heavy SDK) ---
+requests>=2.31
+python-dotenv>=1.0
+
+# --- System / utils ---
+psutil>=5.9
+pillow>=10.0
+
+# --- Build (publish to exe) ---
+# pyinstaller>=6.0   # install only when building: pip install pyinstaller
