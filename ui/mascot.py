@@ -39,6 +39,7 @@ MOOD_COLORS = {
     "MUNCH": "#FBBF24",
     "HUNGRY": "#C9A227",
     "HOT": "#FF9F43",
+    "CARE": "#F5B85C",
 }
 
 SLEEP_AFTER_S = 60.0   # doze off after a minute of nothing happening
@@ -248,6 +249,15 @@ class Mascot(QWidget):
         self.jump_v = -7.0
         self.update()
 
+    def care(self) -> None:
+        """Warm sympathetic lean (user tired/sad — reply bubble stays)."""
+        import time
+        self._last_active = time.time()
+        self.mood = "CARE"
+        self._mood_until = time.time() + 3.0
+        self._tilt = 0.12
+        self.update()
+
     def set_accent(self, accent: str) -> None:
         self.accent = accent or self.accent
         try:
@@ -297,6 +307,8 @@ class Mascot(QWidget):
         import time
         if (not self._sticky() and self.mood != self.app_mood
                 and time.time() >= self._mood_until):
+            if self.mood == "CARE" and not self._dragging:
+                self._tilt = 0.0  # straighten up after sympathising
             self.mood = self.app_mood
         if self._shake > 0:  # angry tremble
             self._shake -= 1
@@ -734,11 +746,17 @@ class Mascot(QWidget):
             p.drawLine(int(-16 * u), int(-4 * u), int(-6 * u), int(-4 * u))
             p.drawLine(int(6 * u), int(-4 * u), int(16 * u), int(-4 * u))
         elif laugh or munch:
-            # happy ^^ arcs
+            # happy ^^ arcs (also gentle CARE eyes)
             p.setPen(QPen(QColor("#EAFBFF"), 3 * u))
             p.setBrush(Qt.NoBrush)
             p.drawArc(int(-18 * u), int(-10 * u), int(13 * u), int(12 * u), 30 * 16, 120 * 16)
             p.drawArc(int(5 * u), int(-10 * u), int(13 * u), int(12 * u), 30 * 16, 120 * 16)
+        elif self.mood == "CARE":
+            # soft sympathetic eyes
+            p.setPen(QPen(QColor("#FFE9C4"), 3 * u))
+            p.setBrush(Qt.NoBrush)
+            p.drawArc(int(-18 * u), int(-9 * u), int(13 * u), int(11 * u), 30 * 16, 120 * 16)
+            p.drawArc(int(5 * u), int(-9 * u), int(13 * u), int(11 * u), 30 * 16, 120 * 16)
         elif hungry:
             # droopy half-mast eyes + tiny pupils
             p.setBrush(QColor("#EAFBFF"))
@@ -860,6 +878,9 @@ class Mascot(QWidget):
             p.drawLine(int(-7 * u), int(24 * u), int(7 * u), int(24 * u))
         elif self.mood == "HAPPY":
             p.drawArc(int(-9 * u), int(16 * u), int(18 * u), int(14 * u), 200 * 16, 140 * 16)
+        elif self.mood == "CARE":
+            # small warm smile
+            p.drawArc(int(-7 * u), int(18 * u), int(14 * u), int(10 * u), 205 * 16, 130 * 16)
         elif self.mood == "ERROR":
             p.drawLine(int(-8 * u), int(24 * u), int(8 * u), int(24 * u))
         elif self.mood == "THINKING":

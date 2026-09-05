@@ -85,6 +85,8 @@ class PipelineWorker(QThread):
             try:
                 if Assistant.is_thanks(text):
                     result["mood_hint"] = "happy"
+                elif Assistant.sense_mood(text):
+                    result["mood_hint"] = "care"
             except Exception:
                 pass
             self.reply_ready.emit(result["reply"], result.get("tool"),
@@ -116,6 +118,10 @@ class MainWindow(QMainWindow):
         # --- services ---
         self.assistant = Assistant(config, db)
         self.aware = Awareness()  # proactive buddy watchers (bubble alerts)
+        try:
+            self.aware.db = db  # enables mood follow-ups (same SQLite)
+        except Exception:
+            pass
         mic_idx = config.voice.microphone_index
         self.listener = Listener(device=None if mic_idx is None or mic_idx < 0 else mic_idx)
         self.stt = SpeechToText(model_size=config.voice.stt_model,
@@ -710,6 +716,8 @@ class MainWindow(QMainWindow):
         try:
             if mood_hint == "happy" and self.mascot:
                 self.mascot.cheer()
+            elif mood_hint == "care" and self.mascot:
+                self.mascot.care()
         except Exception:
             pass
         self._say_status("Speaking...")
@@ -912,7 +920,7 @@ class MainWindow(QMainWindow):
             hot: str | None = None
             try:
                 for fn in (self.aware.check_battery, self.aware.check_time,
-                           self.aware.check_downloads):
+                           self.aware.check_downloads, self.aware.check_mood_followup):
                     try:
                         m = fn()
                     except Exception:

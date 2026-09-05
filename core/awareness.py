@@ -25,12 +25,13 @@ TEMP_EXTS = {".crdownload", ".part", ".tmp", ".download", ".opdownload"}
 
 
 class Awareness:
-    def __init__(self, downloads_dir: str | Path = ""):
+    def __init__(self, downloads_dir: str | Path = "", db=None):
         self.downloads = Path(downloads_dir or Path.home() / "Downloads")
         try:
             self._dl_snapshot: set[str] = set(os.listdir(self.downloads))
         except Exception:
             self._dl_snapshot = set()
+        self.db = db  # optional: enables mood follow-ups
         self._last_plugged: bool | None = None
         self._low_warned = False
         self._full_warned = False
@@ -84,6 +85,42 @@ class Awareness:
                 self._last_hot = time.time()
                 return f"CPU is cooking ({pct:.0f}%) — I'm fanning myself!"
             return None
+        except Exception:
+            return None
+
+    # ================= mood follow-up (human continuity) =================
+    def check_mood_followup(self) -> str | None:
+        """'Yesterday you seemed tired — feeling better today?' Once a day."""
+        if self.db is None:
+            return None
+        try:
+            from datetime import datetime as _dt
+            today = _dt.now().strftime("%Y-%m-%d")
+            rows = self.db.query(
+                "SELECT value, created_at FROM memories WHERE category='mood'"
+                " ORDER BY updated_at DESC LIMIT 5")
+            if not rows:
+                return None
+            try:
+                day = _dt.fromtimestamp(rows[0]["created_at"]).strftime("%Y-%m-%d")
+            except Exception:
+                return None
+            if day >= today:
+                return None  # mood is from today — too soon
+            try:
+                mood = str(rows[0]["value"]).split()[2].strip(".,")
+            except Exception:
+                mood = "down"
+            done = self.db.query(
+                "SELECT 1 FROM routine_nudges WHERE day=? AND cmd='mood-followup'",
+                (today,))
+            if done:
+                return None
+            self.db.execute(
+                "INSERT OR IGNORE INTO routine_nudges (day, cmd, hour, created_at)"
+                " VALUES (?,?,?,?)",
+                (today, "mood-followup", _dt.now().hour, time.time()))
+            return f"Last time you seemed {mood} — feeling better today?"
         except Exception:
             return None
 

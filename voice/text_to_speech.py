@@ -109,8 +109,27 @@ class TextToSpeech:
 
     async def _edge_save(self, text: str, out: str) -> None:
         import edge_tts
-        comm = edge_tts.Communicate(text, voice=self.voice, rate=self.rate, volume=self.volume)
+        comm = edge_tts.Communicate(self._humanize(text), voice=self.voice,
+                                    rate=self.rate, volume=self.volume)
         await comm.save(out)
+
+    def _humanize(self, text: str) -> str:
+        """SSML breathing room: pauses after sentences/commas, slightly
+        warmer prosody. Plain text passes through untouched when it
+        already looks like SSML. edge-tts sends <speak> as SSML."""
+        t = (text or "").strip()
+        if not t or t.lstrip().startswith("<speak"):
+            return t
+        # escape XML specials outside tags (there are no tags here)
+        t = (t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+        t = t.replace(". ", ".<break time='350ms'/> ")
+        t = t.replace("! ", "!<break time='350ms'/> ")
+        t = t.replace("? ", "?<break time='400ms'/> ")
+        t = t.replace(", ", ",<break time='180ms'/> ")
+        t = t.replace("। ", "।<break time='350ms'/> ")
+        lang = "-".join((self.voice or "en-US").split("-")[:2])
+        return (f"<speak version='1.0' xml:lang='{lang}'>"
+                f"<prosody rate='medium' pitch='+2%'>{t}</prosody></speak>")
 
     # ---------- offline fallback: Windows SAPI via PowerShell ----------
     def _fallback_sapi(self, text: str) -> None:

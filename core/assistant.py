@@ -58,6 +58,7 @@ class Assistant:
         self.reminders = ReminderStore(db)
         self.todos = TodoStore(db)
         self.pending = None  # confirm-gated action: {"tool","args","label"}
+        self._last_felt = ""  # session sentiment dedupe
         self.routines = RoutineTracker(db, enabled=config.privacy.memory_enabled
                                        and getattr(config.privacy, "routines", True))
         self.llm = LLMClient(
@@ -106,6 +107,17 @@ class Assistant:
                 settled = self._settle_confirm(user_text)
                 if settled:
                     return settled
+            # 0b) Human touch: remember how they feel (once per mood/session)
+            felt = self.sense_mood(user_text)
+            if felt and felt != self._last_felt and self.memory.enabled:
+                self._last_felt = felt
+                try:
+                    from datetime import datetime as _dt
+                    self.memory.save_memory(
+                        f"User seemed {felt} ({_dt.now().strftime('%b %d')}).",
+                        key=f"mood-{felt}", category="mood")
+                except Exception:
+                    pass
             # 1) Fast local paths (no LLM needed, work offline)
             local = self._local_commands(user_text)
             if local:
@@ -177,6 +189,7 @@ class Assistant:
                     "model": used_model}
 
             self._log_turn(user_text, raw)
+            raw = self.human_filler(user_text, raw)
             return {"reply": raw, "tool": None, "tool_result": None,
                     "model": used_model}
         except RuntimeError as e:
@@ -260,6 +273,7 @@ class Assistant:
                         "model": self.llm.active_model or used_model}
             current = parse_tool_call(nxt)
             if not current:
+                nxt = self.human_filler(user_text, nxt)
                 self._log_turn(user_text, nxt)
                 self.routines.log(user_text, tool)
                 return {"reply": nxt, "tool": tool, "tool_result": result,
@@ -275,9 +289,20 @@ class Assistant:
     def _local_commands(self, text: str) -> dict | None:
         low = text.lower().strip()
 
-        # greetings / capabilities
-        if low in ("hey nova", "hello nova", "hi nova", "hey", "hello", "hi"):
-            return {"reply": "Yes? I'm listening.", "tool": None, "tool_result": None}
+        # greetings / capabilities (rotating, human variety)
+        hellos = ("hey milo", "hello milo", "hi milo", "hey", "hello", "hi",
+                  "hey buddy", "hi buddy", "yo", "salam", "salam milo",
+                  "assalamualaikum", "adab")
+        if low in hellos:
+            import random as _r
+            pool = ["Yes? I'm listening.", "Hey! What's up?",
+                    "I'm here — talk to me.", "Haan, bolo!",
+                    "Hey hey! All ears."]
+            if is_bangla(text):
+                pool = ["Haan, bolo!", "Hey! Ki khobor?",
+                        "Achi — bolo ki help lagbe?", "Shunchi, bolo!"]
+            reply = _r.choice(pool)
+            return {"reply": reply, "tool": None, "tool_result": None}
         if "what can you do" in low:
             return {"reply": ("I can chat, remember things, open apps and websites, "
                               "search the web, take screenshots, check system info, "
@@ -683,6 +708,36 @@ class Assistant:
         return " ".join(parts) if parts else "Status check failed."
 
     # ---------- helpers ----------
+    MOOD_WORDS = {
+        "tired": ("tired", "klanto", "ghum", "sleepy", "exhausted", "rest"),
+        "sad": ("sad", "mon kharap", "kharap lagche", "upset", "depressed",
+                "kanna", "crying", "lonely"),
+        "happy": ("happy", "khushi", "moja", "excited", "great news", "awesome day",
+                  "congrat", "utt ejito", "anondo"),
+        "sick": ("sick", "oshustho", "jor", "fever", "doctor", "hospital", "pain"),
+        "busy": ("busy", "besto", "chap", "deadline", "tension", "stressed", "pressure"),
+    }
+
+    @classmethod
+    def sense_mood(cls, text: str) -> str:
+        low = (text or "").lower()
+        for mood, words in cls.MOOD_WORDS.items():
+            if any(w in low for w in words):
+                return mood
+        return ""
+
+    @staticmethod
+    def human_filler(text: str, reply: str) -> str:
+        """Rare conversational softener (chat answers only, ~1 in 6)."""
+        import random as _r
+        if len(reply) < 40 or reply.rstrip().endswith("?"):
+            return reply
+        if _r.random() > 0.17:
+            return reply
+        if is_bangla(text):
+            return _r.choice(["Achha, ", "Hmm, ", "Dekho, "]) + reply
+        return _r.choice(["Hmm, ", "Well, ", "Honestly, "]) + reply
+
     @staticmethod
     def is_thanks(text: str) -> bool:
         low = (text or "").lower()
