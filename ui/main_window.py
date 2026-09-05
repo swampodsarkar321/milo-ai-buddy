@@ -50,21 +50,24 @@ class PipelineWorker(QThread):
     reply_ready = Signal(str, object, object, object)  # reply, tool, tool_result, mood_hint
     progress = Signal(str)  # e.g. "Trying nemotron-3-ultra... (2)"
     failed = Signal(str)
+    aborted = Signal()  # silent follow-up heard nothing -> back to idle quietly
 
-    def __init__(self, mode="voice", text="", listener=None, stt=None, assistant=None):
+    def __init__(self, mode="voice", text="", listener=None, stt=None,
+                 assistant=None, silent_empty=False):
         super().__init__()
         self.mode = mode
         self.text = text
         self.listener = listener
         self.stt = stt
         self.assistant = assistant
+        self.silent_empty = silent_empty
 
     def run(self):
         try:
             if self.mode == "voice":
                 pcm = self.listener.record_utterance()
                 if not pcm:
-                    self.failed.emit("I didn't hear anything. Try again.")
+                    self._empty("I didn't hear anything. Try again.")
                     return
                 try:
                     text = self.stt.transcribe_pcm16(pcm)
@@ -72,7 +75,7 @@ class PipelineWorker(QThread):
                     self.failed.emit(str(e))
                     return
                 if not text.strip():
-                    self.failed.emit("I couldn't understand that. Try again.")
+                    self._empty("I couldn't understand that. Try again.")
                     return
                 self.transcript_ready.emit(text)
             else:
@@ -94,6 +97,13 @@ class PipelineWorker(QThread):
                                   result.get("tool_result"), result.get("mood_hint"))
         except Exception as e:  # never crash the GUI
             self.failed.emit(f"Something went wrong: {e}")
+
+    def _empty(self, msg: str):
+        """Follow-up silence aborts quietly; normal turns complain + speak."""
+        if self.silent_empty:
+            self.aborted.emit()
+        else:
+            self.failed.emit(msg)
 
 
 # ---------------- main window ----------------
@@ -135,6 +145,8 @@ class MainWindow(QMainWindow):
                                 rate=config.voice.rate, volume=config.voice.volume)
         self.worker: PipelineWorker | None = None
         self.mascot: Mascot | None = None
+        self._voice_turn = False   # last turn came from mic (follow-up eligible)
+        self._followup_depth = 0   # chained follow-ups this turn (cap 2)
 
         # --- layout ---
         central = QWidget()
@@ -699,17 +711,22 @@ class MainWindow(QMainWindow):
     def _busy(self) -> bool:
         return self.worker is not None and self.worker.isRunning()
 
-    def start_voice(self):
+    def start_voice(self, followup: bool = False):
         if self._busy():
             return
+        if not followup:
+            self._followup_depth = 0
+        self._voice_turn = True
         self.tts.stop()
         self._set_state(AssistantState.LISTENING)
-        self.home.show_transcript("Listening... speak now.")
-        self._say_status("Listening...")
+        self.home.show_transcript("Listening… speak now." if not followup
+                                  else "Anything else? I'm listening…")
+        self._say_status("Listening…")
         if self.wake:
             self.wake.enabled = False
         self.worker = PipelineWorker(mode="voice", listener=self.listener,
-                                     stt=self.stt, assistant=self.assistant)
+                                     stt=self.stt, assistant=self.assistant,
+                                     silent_empty=followup)
         self.worker.transcript_ready.connect(
             lambda t: (self.home.show_transcript(t),
                        self._set_state(AssistantState.THINKING),
@@ -717,12 +734,22 @@ class MainWindow(QMainWindow):
         self.worker.reply_ready.connect(self._on_reply)
         self.worker.progress.connect(self._on_progress)
         self.worker.failed.connect(self._on_fail)
+        self.worker.aborted.connect(self._on_followup_abort)
         self.worker.finished.connect(self._worker_done)
         self.worker.start()
+
+    def _on_followup_abort(self):
+        # follow-up window heard nothing: end the chain quietly
+        self._voice_turn = False
+        self._followup_depth = 0
+        self._set_state(AssistantState.IDLE)
+        self._say_status("Ready.")
 
     def submit_text(self, text: str):
         if self._busy() or not text.strip():
             return
+        self._voice_turn = False
+        self._followup_depth = 0
         self.tts.stop()
         self._set_state(AssistantState.THINKING)
         self.home.show_transcript(text)
@@ -781,6 +808,11 @@ class MainWindow(QMainWindow):
         if not self.tts.speaking and not self._busy():
             self._set_state(AssistantState.IDLE)
             self._say_status("Ready.")
+            # Alexa-style continued conversation: voice turns chain up to
+            # 2 follow-ups without the wake word (silence ends it quietly).
+            if self._voice_turn and self._followup_depth < 2:
+                self._followup_depth += 1
+                self.start_voice(followup=True)
 
     def _on_fail(self, msg: str):
         self.home.show_response(msg)
@@ -801,6 +833,8 @@ class MainWindow(QMainWindow):
 
     def stop_speaking(self):
         self.tts.stop()
+        self._voice_turn = False
+        self._followup_depth = 0
         self._set_state(AssistantState.IDLE)
         self._say_status("Stopped.")
 

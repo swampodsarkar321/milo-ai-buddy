@@ -40,7 +40,8 @@ hold the logic — reusable without the GUI.
 
 ## What it does
 
-- 🎤 Push-to-talk + wake word ("Hey Nova", configurable) + typed fallback
+- 🎤 Push-to-talk + wake word ("Hey Milo", configurable) + typed fallback
+- 🗣️ Continued conversation: follow-ups without the wake word (max 2, silence ends it)
 - 🧠 OpenAI-compatible LLM with tool calling (JSON contract in `ai/tools.py`)
 - 💾 SQLite long-term memory (`Remember that I like football` → recall later)
 - ⏰ Reminders + recurring schedules ("protodin sokal 9 tay office",
