@@ -29,7 +29,7 @@ from tools import files as file_tools
 from tools import pc as pc_tools
 from tools import system as system_tools
 from tools import vision as vision_tools
-from tools.reminders import ReminderStore, parse_reminder_time
+from tools.reminders import ReminderStore, parse_reminder_time, parse_schedule
 from tools.screenshot import take_screenshot
 from tools.todo import TodoStore
 
@@ -513,6 +513,42 @@ class Assistant:
             res = system_tools.get_current_time()
             return {"reply": res["message"], "tool": "get_current_time", "tool_result": res}
 
+        # reminders: recurring schedules first ("every day…", "protodin…")
+        if re.search(r"every|daily|protodin|protidin|monday|tuesday|wednesday|"
+                     r"thursday|friday|saturday|sunday|sombar|mongolbar|budhbar|"
+                     r"brihospotibar|shukrobar|shonibar|robibar|jumma", low):
+            sched = parse_schedule(text)
+            if sched:
+                rid = self.reminders.create_schedule(
+                    sched["text"], sched["kind"], sched["hour"],
+                    sched["minute"], sched["weekday"])
+                when = (f"{sched['hour']:02d}:{sched['minute']:02d}")
+                scope = ("every day" if sched["kind"] == "daily"
+                         else "weekly")
+                reply = f"Got it — {scope} at {when}, I'll remind you."
+                self._log_turn(text, reply)
+                self.routines.log(text, "create_schedule")
+                return {"reply": reply, "tool": "create_schedule",
+                        "tool_result": {"ok": True, "id": rid}}
+        if re.search(r"my schedules|schedule (list|gulo)|schedules (dekhao|bolo)", low):
+            items = self.reminders.schedules()
+            if not items:
+                reply = "No recurring reminders set."
+            else:
+                bits = []
+                for i, r in enumerate(items[:5], 1):
+                    try:
+                        when = datetime.fromtimestamp(r["due_at"]).strftime("%I:%M %p")
+                    except Exception:
+                        when = ""
+                    bits.append(f"{i}. {r['text']} ({r.get('repeat','')} {when})")
+                reply = "Schedules: " + " | ".join(bits)
+            return {"reply": reply, "tool": None, "tool_result": None}
+        m = re.match(r"(?:cancel|delete|stop|bondho koro)\s+schedule\s+(\d+)", low)
+        if m:
+            res = self.reminders.delete_schedule(int(m.group(1)))
+            return {"reply": res["message"], "tool": None, "tool_result": res}
+
         # reminders: "remind me at 8 pm to ..."
         if "remind me" in low:
             due = parse_reminder_time(text)
@@ -554,6 +590,17 @@ class Assistant:
                     args.get("text", ""),
                     minutes_from_now=float(args.get("minutes_from_now") or 0),
                     due_at_str=args.get("due_at", ""))
+            if name == "create_schedule":
+                try:
+                    h, mi = int(args.get("hour", 9)), int(args.get("minute", 0))
+                    wd = int(args.get("weekday", -1))
+                except Exception:
+                    h, mi, wd = 9, 0, -1
+                kind = args.get("kind", "daily") or "daily"
+                rid = self.reminders.create_schedule(
+                    args.get("text", "Scheduled reminder"), kind, h, mi, wd)
+                return {"ok": True, "id": rid,
+                        "message": f"Recurring reminder set ({kind})."}
             # ---- PC control ----
             if name == "close_application":
                 return pc_tools.close_application(args.get("app", ""))

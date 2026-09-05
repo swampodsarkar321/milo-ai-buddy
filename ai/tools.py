@@ -31,6 +31,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
         "description": "Save a reminder. minutes_from_now OR due_at 'YYYY-MM-DD HH:MM'.",
         "args": {"text": "reminder text", "minutes_from_now": 60, "due_at": ""},
     },
+    "create_schedule": {
+        "description": "Recurring reminder: daily or weekly at HH:MM.",
+        "args": {"text": "reminder text", "kind": "daily|weekly",
+                 "hour": 9, "minute": 0, "weekday": 0},
+    },
     "web_search": {
         "description": "Return web result snippets as text (for knowledge questions).",
         "args": {"query": "search text"},

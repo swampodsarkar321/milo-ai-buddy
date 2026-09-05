@@ -20,7 +20,10 @@ CREATE TABLE IF NOT EXISTS reminders (
     text TEXT NOT NULL,
     due_at REAL NOT NULL,
     done INTEGER DEFAULT 0,
-    created_at REAL
+    created_at REAL,
+    repeat TEXT DEFAULT '',
+    repeat_day INTEGER DEFAULT -1,
+    last_fired TEXT DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS chat_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -58,6 +61,22 @@ class Database:
         self._conn.row_factory = sqlite3.Row
         with self._conn:
             self._conn.executescript(SCHEMA)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """Additive migrations for existing user databases. Never raises."""
+        try:
+            cols = {r[1] for r in
+                    self._conn.execute("PRAGMA table_info(reminders)").fetchall()}
+            for col, ddl in (("repeat", "TEXT DEFAULT ''"),
+                             ("repeat_day", "INTEGER DEFAULT -1"),
+                             ("last_fired", "TEXT DEFAULT ''")):
+                if col not in cols:
+                    self._conn.execute(f"ALTER TABLE reminders ADD COLUMN {col} {ddl}")
+            with self._conn:
+                pass
+        except Exception:
+            pass
 
     # generic helper
     def execute(self, sql: str, params: tuple = ()):

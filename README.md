@@ -43,7 +43,8 @@ hold the logic — reusable without the GUI.
 - 🎤 Push-to-talk + wake word ("Hey Nova", configurable) + typed fallback
 - 🧠 OpenAI-compatible LLM with tool calling (JSON contract in `ai/tools.py`)
 - 💾 SQLite long-term memory (`Remember that I like football` → recall later)
-- ⏰ Reminders + countdown timers + to-do list + routine learning
+- ⏰ Reminders + recurring schedules ("protodin sokal 9 tay office") +
+  countdown timers + to-do list + routine learning
 - 🗣️ Bangla/English/Banglish commands ("chrome kholo", "৩০ সেকেন্ড টাইমার")
 - 🖥️ Safe tools: open/close apps, lock, volume, media keys, Google/YouTube
   search, screenshot, CPU/RAM/disk/battery/IP, time (shutdown family = voice confirm)

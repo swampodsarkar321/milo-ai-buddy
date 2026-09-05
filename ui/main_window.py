@@ -850,7 +850,11 @@ class MainWindow(QMainWindow):
         try:
             due = self.assistant.reminders.due()
         except Exception:
-            return
+            due = []
+        try:
+            due += self.assistant.reminders.due_schedules()
+        except Exception:
+            pass
         for r in due:
             self.assistant.reminders.mark_done(r["id"])
             msg = f"Reminder: {r['text']}"
