@@ -52,8 +52,11 @@ LAUGH_EVERY = 5        # every Nth poke is a giggle fit
 class MascotBubble(QLabel):
     """Floating status text above the buddy (click-through, auto-hides).
 
-    Tint = mood colour left-border + tinted text. Style modes:
-    auto (mood tint) | white (neutral) | accent (product colour).
+    The pill is PAINTED into pixels (QPainter) instead of stylesheets, so
+    text stays readable even where window translucency/stylesheets
+    misbehave: worst case the corners go white, the pill itself is
+    always a solid dark rounded-rect with bold white text.
+    Tint = mood colour (auto) | neutral (white) | product accent.
     """
 
     def __init__(self):
@@ -63,14 +66,16 @@ class MascotBubble(QLabel):
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)  # never blocks clicks
+        self.setStyleSheet("background:transparent; border:none;")
+        self.setText("")
         self._tint = "#7C5CFF"
         self._mode = "auto"
+        self.last_text = ""
         self.hide()
 
     def configure(self, mode: str, accent: str = "#7C5CFF"):
         self._mode = mode if mode in ("auto", "white", "accent") else "auto"
         self._accent = accent
-        self._restyle(self._tint)
 
     @staticmethod
     def _hex_to_rgb(value: str) -> tuple[int, int, int]:
@@ -84,11 +89,7 @@ class MascotBubble(QLabel):
 
     @staticmethod
     def _mix(a: str, b: str, amt: float) -> str:
-        """Solid mix of two hex colours (no alpha -> same on every PC).
-
-        amt=0 -> a, amt=1 -> b. Used so the bubble never depends on
-        compositor transparency (which washes out white on some GPUs).
-        """
+        """Solid mix of two hex colours (no alpha -> same on every PC)."""
         def _h(v: str) -> tuple[int, int, int]:
             v = v.strip().lstrip("#")
             if len(v) == 3:
@@ -105,27 +106,63 @@ class MascotBubble(QLabel):
         bl = int(ab + (bb - ab) * t)
         return f"#{r:02X}{g:02X}{bl:02X}"
 
-    def _restyle(self, tint: str):
-        self._tint = tint
+    def _palette(self, tint: str) -> tuple[str, str]:
+        """(pill fill, border) as solid hex for the current mode."""
         if self._mode == "white":
-            bg, border, color = "#0B1129", "#8B93C9", "#FFFFFF"
-        elif self._mode == "accent":
+            return "#101736", "#8B93C9"
+        if self._mode == "accent":
             acc = getattr(self, "_accent", "#7C5CFF")
-            bg, border, color = self._mix(acc, "#0B1129", 0.78), acc, "#FFFFFF"
-        else:  # auto: dark mood-tinted SOLID pill — readable on any wallpaper
-            bg = self._mix(tint, "#0B1129", 0.74)
-            border, color = tint, "#FFFFFF"
-        self.setStyleSheet(
-            f"background:{bg}; color:{color};"
-            f"border:2px solid {border};"
-            "border-radius:14px; padding:10px 18px;"
-            "font-size:14px; font-weight:800;")
+            return self._mix(acc, "#0B1129", 0.72), acc
+        return self._mix(tint, "#0B1129", 0.70), tint
 
     def show_text(self, text: str, tint: str = "#7C5CFF"):
-        self._restyle(tint)
-        self.setText(text)
-        self.adjustSize()
-        # re-assert transparency every show (some drivers drop it)
+        from PySide6.QtGui import QPixmap, QPainter, QFont, QFontMetrics, QPen
+        self._tint = tint
+        self.last_text = str(text or "")
+        fill, border = self._palette(tint)
+        font = QFont("Segoe UI", 13)
+        font.setBold(True)
+        fm = QFontMetrics(font)
+        # wrap to ~380px, max 4 lines
+        words, lines, cur = str(text or "").split(), [], ""
+        for wd in words:
+            trial = (cur + " " + wd).strip()
+            if fm.horizontalAdvance(trial) <= 380 or not cur:
+                cur = trial
+            else:
+                lines.append(cur)
+                cur = wd
+                if len(lines) == 3:
+                    break
+        if cur:
+            lines.append(cur)
+        lines = lines[:4]
+        if not lines:
+            return
+        if len(str(text or "").split()) > sum(len(x.split()) for x in lines):
+            lines[-1] = lines[-1][:60].rstrip() + "…"
+        lh = fm.lineSpacing()
+        pad_x, pad_y = 18, 12
+        w = max(fm.horizontalAdvance(x) for x in lines) + pad_x * 2
+        h = lh * len(lines) + pad_y * 2
+        pix = QPixmap(max(1, w), max(1, h))
+        pix.fill(Qt.transparent)
+        p = QPainter(pix)
+        try:
+            p.setRenderHint(QPainter.Antialiasing)
+            p.setBrush(QColor(*self._hex_to_rgb(fill)))
+            p.setPen(QPen(QColor(*self._hex_to_rgb(border)), 2))
+            p.drawRoundedRect(1, 1, w - 2, h - 2, 14, 14)
+            p.setPen(QColor("#FFFFFF"))
+            p.setFont(font)
+            y = pad_y + fm.ascent()
+            for ln in lines:
+                p.drawText(pad_x, y, ln)
+                y += lh
+        finally:
+            p.end()
+        self.setPixmap(pix)
+        self.resize(pix.size())
         try:
             self.setAttribute(Qt.WA_TranslucentBackground, True)
         except Exception:
