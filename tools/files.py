@@ -154,11 +154,10 @@ def list_large_files(folder: str = "", top: int = 10) -> dict:
         return {"ok": False, "message": "That folder doesn't exist."}
     found: list[tuple[float, str]] = []
     seen = 0
+    skip = {"AppData", "Application Data", ".git", "node_modules", "__pycache__"}
     try:
         for dirpath, dirnames, filenames in os.walk(root):
-            if "AppData" in dirpath.split(os.sep):
-                dirnames[:] = []
-                continue
+            dirnames[:] = [d for d in dirnames if d not in skip]
             for fn in filenames:
                 seen += 1
                 if seen > MAX_WALK_FILES:
@@ -223,3 +222,105 @@ def read_text_file(path: str, max_chars: int = READ_CHARS) -> dict:
         return {"ok": True, "message": text, "path": str(p)}
     except Exception as e:
         return {"ok": False, "message": f"Couldn't read it: {e}"}
+
+
+def zip_path(src: str, dest_folder: str = "") -> dict:
+    """Compress a file/folder into a .zip (stdlib only)."""
+    s = _resolve(src)
+    if s is None or not s.exists():
+        return {"ok": False, "message": "I couldn't find that."}
+    if not _inside_home(s):
+        return {"ok": False, "message": "Only inside your profile."}
+    try:
+        import shutil as _sh
+        base = _resolve(dest_folder) if dest_folder else s.parent
+        if base is None:
+            return {"ok": False, "message": "Which folder should it go to?"}
+        base.mkdir(parents=True, exist_ok=True)
+        out_base = base / (s.stem + "_zipped")
+        archive = _sh.make_archive(str(out_base), "zip",
+                                   root_dir=str(s.parent), base_dir=s.name)
+        return {"ok": True, "message": f"Zipped to {Path(archive).name}.",
+                "path": archive}
+    except Exception as e:
+        return {"ok": False, "message": f"Zip failed: {e}"}
+
+
+def unzip_path(src: str, dest_folder: str = "") -> dict:
+    """Extract .zip/.tar/.gz archives (stdlib only)."""
+    s = _resolve(src)
+    if s is None or not s.is_file():
+        return {"ok": False, "message": "I couldn't find that archive."}
+    if not _inside_home(s):
+        return {"ok": False, "message": "Only inside your profile."}
+    if s.suffix.lower() not in {".zip", ".tar", ".gz", ".tgz"}:
+        return {"ok": False, "message": "I can only extract zip/tar/gz for now."}
+    try:
+        import shutil as _sh
+        dest = _resolve(dest_folder) if dest_folder else s.parent / s.stem
+        dest.mkdir(parents=True, exist_ok=True)
+        _sh.unpack_archive(str(s), str(dest))
+        n = sum(1 for _ in dest.rglob("*") if _.is_file())
+        return {"ok": True, "message": f"Extracted {n} files to {dest.name}."}
+    except Exception as e:
+        return {"ok": False, "message": f"Extract failed: {e}"}
+
+
+def find_duplicates(folder: str = "", max_groups: int = 5) -> dict:
+    """Duplicate files by size-then-md5 (scoped walk). Never raises."""
+    root = _resolve(folder) if folder else HOME / "Downloads"
+    if root is None or not root.exists():
+        return {"ok": False, "message": "That folder doesn't exist."}
+    try:
+        import hashlib
+        by_size: dict[int, list[Path]] = {}
+        seen = 0
+        skip = {"AppData", "Application Data", ".git", "node_modules", "__pycache__"}
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [d for d in dirnames if d not in skip]
+            for fn in filenames:
+                seen += 1
+                if seen > MAX_WALK_FILES:
+                    break
+                fp = Path(dirpath) / fn
+                try:
+                    by_size.setdefault(fp.stat().st_size, []).append(fp)
+                except OSError:
+                    pass
+            if seen > MAX_WALK_FILES:
+                break
+        groups = 0
+        total_waste = 0
+        examples: list[str] = []
+        for size, files in sorted(by_size.items(), reverse=True):
+            if size == 0 or len(files) < 2:
+                continue
+            hashes: dict[str, list[Path]] = {}
+            for fp in files:
+                try:
+                    h = hashlib.md5()
+                    with open(fp, "rb") as f:
+                        for chunk in iter(lambda: f.read(65536), b""):
+                            h.update(chunk)
+                    hashes.setdefault(h.hexdigest(), []).append(fp)
+                except OSError:
+                    pass
+            for _dig, dupes in hashes.items():
+                if len(dupes) < 2:
+                    continue
+                groups += 1
+                total_waste += size * (len(dupes) - 1)
+                if len(examples) < max_groups:
+                    examples.append(f"{dupes[0].name} ×{len(dupes)}")
+                if groups >= max_groups:
+                    break
+            if groups >= max_groups:
+                break
+        if not groups:
+            return {"ok": True, "message": "No duplicates found. Tidy!"}
+        mb = total_waste / 1e6
+        return {"ok": True,
+                "message": f"{groups} duplicate groups wasting ~{mb:.0f} MB: "
+                           + " | ".join(examples)}
+    except Exception as e:
+        return {"ok": False, "message": f"Scan failed: {e}"}

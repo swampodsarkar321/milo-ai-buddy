@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (QHBoxLayout, QLabel, QListWidget, QMessageBox,
 
 from core.assistant import Assistant
 from core.awareness import Awareness
-from core.health import ScreenTime, fmt_dur, today_stats
+from core.health import ScreenTime, fmt_dur, idle_seconds, today_stats
 from core.state import AssistantState
 from voice.listener import Listener
 from voice.speech_to_text import SpeechToText
@@ -277,6 +277,11 @@ class MainWindow(QMainWindow):
         self._health_timer.timeout.connect(self._health_tick)
         self._health_timer.start(60000)
 
+        # --- buddy small-talk (time-aware idle chatter, bubble only) ---
+        self._chat_timer = QTimer(self)
+        self._chat_timer.timeout.connect(self._chitchat_tick)
+        self._chat_timer.start(1200000)
+
         # --- wake word ---
         self.wake = WakeWordListener(wake_word=config.voice.wake_word,
                                      on_wake=self._on_wake,
@@ -287,7 +292,7 @@ class MainWindow(QMainWindow):
         self._set_engine_foot(bool(self.assistant.llm.configured))
 
         # --- desktop buddy (roams the screen, reacts to voice states) ---
-        self.mascot: Mascot | None = None
+        self.mascot = None
         if getattr(config.mascot, "enabled", True):
             self._spawn_mascot()
         # buddy-first hello shortly after launch
@@ -630,6 +635,18 @@ class MainWindow(QMainWindow):
                     pass
             except Exception:
                 pass
+
+    def _chitchat_tick(self):
+        try:
+            if not self.mascot or self._busy():
+                return
+            try:
+                idle = idle_seconds()
+            except Exception:
+                idle = None
+            self.mascot.chitchat(idle)
+        except Exception:
+            pass
 
     # ---------- Alexa-style activity feed ----------
     def refresh_feed(self):

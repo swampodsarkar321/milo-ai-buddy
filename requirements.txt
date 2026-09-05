@@ -15,6 +15,7 @@ python-dotenv>=1.0
 # --- System / utils ---
 psutil>=5.9
 pillow>=10.0
+screen-brightness-control>=0.23  # brightness control (graceful if missing)
 
 # --- Build (publish to exe) ---
 # pyinstaller>=6.0   # install only when building: pip install pyinstaller

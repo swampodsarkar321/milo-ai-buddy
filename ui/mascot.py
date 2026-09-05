@@ -45,8 +45,23 @@ MOOD_COLORS = {
 SLEEP_AFTER_S = 60.0   # doze off after a minute of nothing happening
 HUNGRY_AT = 70.0       # hunger 0..100; belly rumbles past this
 HUNGER_PER_TICK = 0.08  # _think runs every 1.2s -> hungry in ~18 min
-POKE_ANGRY_N = 3       # rapid pokes within 2s -> grumpy
+POKE_ANGRY_N = 3       # rapid pokes within 2s -> grumpy!
 LAUGH_EVERY = 5        # every Nth poke is a giggle fit
+CHITCHAT_GAP_S = 1500  # idle small-talk at most every ~25 min
+
+# time-aware idle chatter (bubble only, never audio — never startling)
+CHITCHAT = {
+    "morning": ["Good morning! Coffee done?", "Ajker plan ki?",
+                "Fresh day! Kuch interesting kori?"],
+    "afternoon": ["Stretch korso?", "Ek glass pani khao!",
+                  "Afternoon slump? Ami achi!"],
+    "evening": ["Evening! Din kemon gelo?", "Relax koro ektu.",
+                "Dinner ki khabe?"],
+    "night": ["Still up? Night owl, huh.", "Chand dekhecho aj?",
+              "Rest neo, kal abar hobe!"],
+    "late": ["It's REALLY late… sleep!", "Ghumaona keno?!",
+             "3am thoughts, huh?"],
+}
 
 
 class MascotBubble(QLabel):
@@ -199,6 +214,7 @@ class Mascot(QWidget):
         self._poke_times: list[float] = []
         self._poke_count = 0
         self._shake = 0
+        self._last_chitchat = 0.0
         # showmanship: wave frames, spin-trick degrees remaining
         self._wave = 0
         self._spin = 0.0
@@ -294,6 +310,33 @@ class Mascot(QWidget):
         self._mood_until = time.time() + 3.0
         self._tilt = 0.12
         self.update()
+
+    def chitchat(self, idle_s: float | None = None) -> bool:
+        """Idle small-talk bubble (time-aware). True when something said.
+
+        Skips when busy-feeling (sticky moods, speaking, recent chatter,
+        user long-away). Bubble only — never audio.
+        """
+        import time
+        import random as _r
+        try:
+            now = time.time()
+            if now - self._last_chitchat < CHITCHAT_GAP_S:
+                return False
+            if self._sticky() or self.mood in ("SPEAKING", "THINKING", "LISTENING"):
+                return False
+            if idle_s is not None and idle_s > 600:
+                return False  # user away — stay quiet
+            from datetime import datetime as _dt
+            h = _dt.now().hour
+            slot = ("late" if h < 5 else "morning" if h < 12
+                    else "afternoon" if h < 17 else "evening" if h < 22 else "night")
+            self._last_chitchat = now
+            self._last_active = now
+            self.say(_r.choice(CHITCHAT[slot]), ms=5000)
+            return True
+        except Exception:
+            return False
 
     def set_accent(self, accent: str) -> None:
         self.accent = accent or self.accent

@@ -106,6 +106,34 @@ TOOL_SCHEMAS: dict[str, dict] = {
         "description": "Self-diagnostics: engine/voice/mic/memory/net/PC health.",
         "args": {},
     },
+    "brightness_set": {
+        "description": "Set screen brightness 5-100.",
+        "args": {"level": 70},
+    },
+    "brightness_step": {
+        "description": "Nudge brightness up/down.",
+        "args": {"delta": 10},
+    },
+    "window_minimize": {"description": "Minimize the active window.", "args": {}},
+    "window_maximize": {"description": "Maximize the active window.", "args": {}},
+    "window_restore": {"description": "Restore the active window.", "args": {}},
+    "window_list": {"description": "List open window titles.", "args": {}},
+    "window_focus": {
+        "description": "Bring a window to front by title fragment.",
+        "args": {"name": "window name (required)"},
+    },
+    "zip_path": {
+        "description": "Compress a file/folder to .zip.",
+        "args": {"src": "path (required)", "dest_folder": "optional folder"},
+    },
+    "unzip_path": {
+        "description": "Extract a zip/tar/gz archive.",
+        "args": {"src": "archive path (required)", "dest_folder": "optional folder"},
+    },
+    "find_duplicates": {
+        "description": "Find duplicate files under a folder.",
+        "args": {"folder": "optional folder"},
+    },
 }
 
 

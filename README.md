@@ -47,10 +47,11 @@ hold the logic — reusable without the GUI.
   "every 2 hours") + countdown timers + to-do list + routine learning
 - ♥ Health guard: screen-time tracking, break nudges, Buddy health card
 - 🗣️ Bangla/English/Banglish commands ("chrome kholo", "৩০ সেকেন্ড টাইমার")
-- 🖥️ Safe tools: open/close apps, lock, volume, media keys, Google/YouTube
-  search, screenshot, CPU/RAM/disk/battery/IP, time (shutdown family = voice confirm)
+- 🖥️ Safe tools: open/close apps, lock, volume, media keys, brightness,
+  window min/max/switch, Google/YouTube search, screenshot, CPU/RAM/disk/battery/IP,
+  time (shutdown family = voice confirm)
 - 📁 File tools (profile-scoped, no delete): search, create/rename/copy/move,
-  large files, organize Downloads, read text
+  zip/unzip, duplicates, large files, organize Downloads, read text
 - 👁️ Screen understanding: "ekhane samasya ki?" → free vision models read
   your screen and answer (tools/vision.py)
 - 🧩 Multi-step agent: chains up to 3 tool calls per request automatically

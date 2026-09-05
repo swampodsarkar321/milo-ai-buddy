@@ -465,6 +465,72 @@ class Assistant:
             return {"reply": res["message"], "tool": "list_large_files",
                     "tool_result": res}
 
+        # ---- brightness ("brightness 70", "ujjolota barao") ----
+        m = re.search(r"brightness\s+(\d{1,3})", low)
+        if m:
+            res = pc_tools.brightness_set(int(m.group(1)))
+            return {"reply": res["message"], "tool": "brightness_set",
+                    "tool_result": res}
+        if re.search(r"brightness (barao|up|baro)|ujjolota barao|bright(er|ness up)", low):
+            res = pc_tools.brightness_step(10)
+            return {"reply": res["message"], "tool": "brightness_step",
+                    "tool_result": res}
+        if re.search(r"brightness (komao|down|komo)|ujjolota komao|dim koro", low):
+            res = pc_tools.brightness_step(-10)
+            return {"reply": res["message"], "tool": "brightness_step",
+                    "tool_result": res}
+
+        # ---- window control ----
+        if re.search(r"minimi(s|z)e( window)?|minimize koro|choto koro", low):
+            res = pc_tools.window_minimize()
+            return {"reply": res["message"], "tool": "window_minimize",
+                    "tool_result": res}
+        if re.search(r"maximi(s|z)e( window)?|maximize koro|boro koro|fullscreen koro", low):
+            res = pc_tools.window_maximize()
+            return {"reply": res["message"], "tool": "window_maximize",
+                    "tool_result": res}
+        if re.search(r"restore( window)?|window (thik koro|restore koro)", low):
+            res = pc_tools.window_restore()
+            return {"reply": res["message"], "tool": "window_restore",
+                    "tool_result": res}
+        m = re.match(r"(?:switch to|switch|jao|chole jao) (.+)", low)
+        if m and len(low.split()) >= 3 and "switch" in low:
+            res = pc_tools.window_focus(m.group(1))
+            return {"reply": res["message"], "tool": "window_focus",
+                    "tool_result": res}
+        m = re.match(r"(.+?)\s+(?:window|ta|ti)\s+(?:kholo|anao|switch koro|samne ano)", low)
+        if m:
+            res = pc_tools.window_focus(m.group(1))
+            return {"reply": res["message"], "tool": "window_focus",
+                    "tool_result": res}
+        if re.search(r"(kon|ki ki|which) windows? (khola|open|ache)|open windows|khola windows", low):
+            res = pc_tools.window_list()
+            return {"reply": res["message"], "tool": "window_list",
+                    "tool_result": res}
+
+        # ---- zip / unzip / duplicates ----
+        m = re.match(r"(?:zip|compress)(?: koro)? (.+)", low)
+        if m:
+            res = file_tools.zip_path(m.group(1).strip())
+            self._log_turn(text, res["message"])
+            return {"reply": res["message"], "tool": "zip_path",
+                    "tool_result": res}
+        m = re.match(r"(?:unzip|extract)(?: koro)? (.+)", low)
+        if m:
+            res = file_tools.unzip_path(m.group(1).strip())
+            self._log_turn(text, res["message"])
+            return {"reply": res["message"], "tool": "unzip_path",
+                    "tool_result": res}
+        if re.search(r"duplicate", low):
+            folder = ""
+            m2 = re.search(r"(?:in|inside|er moddhe|theke)\s+(.+)", low)
+            if m2:
+                folder = m2.group(1).strip()
+            res = file_tools.find_duplicates(folder)
+            self._log_turn(text, res["message"])
+            return {"reply": res["message"], "tool": "find_duplicates",
+                    "tool_result": res}
+
         # "open <site/app>" (+ Bangla "kholo")
         m = re.match(r"open (.+)", low)
         kh = re.match(r"(.+?)\s+(?:kholo|khulun|khol|open koro|koro open|chalu koro)\s*$", low)
@@ -733,6 +799,36 @@ class Assistant:
                         "message": "Timer cancelled."}
             if name == "system_status":
                 return {"ok": True, "message": self.system_status()}
+            if name == "brightness_set":
+                try:
+                    lv = int(args.get("level", 70))
+                except Exception:
+                    lv = 70
+                return pc_tools.brightness_set(lv)
+            if name == "brightness_step":
+                try:
+                    d = int(args.get("delta", 10))
+                except Exception:
+                    d = 10
+                return pc_tools.brightness_step(d)
+            if name == "window_minimize":
+                return pc_tools.window_minimize()
+            if name == "window_maximize":
+                return pc_tools.window_maximize()
+            if name == "window_restore":
+                return pc_tools.window_restore()
+            if name == "window_list":
+                return pc_tools.window_list()
+            if name == "window_focus":
+                return pc_tools.window_focus(args.get("name", ""))
+            if name == "zip_path":
+                return file_tools.zip_path(args.get("src", ""),
+                                           args.get("dest_folder", ""))
+            if name == "unzip_path":
+                return file_tools.unzip_path(args.get("src", ""),
+                                             args.get("dest_folder", ""))
+            if name == "find_duplicates":
+                return file_tools.find_duplicates(args.get("folder", ""))
             return {"ok": False, "message": f"Unknown tool: {name}"}
         except Exception as e:
             return {"ok": False, "message": f"Tool '{name}' failed: {e}"}

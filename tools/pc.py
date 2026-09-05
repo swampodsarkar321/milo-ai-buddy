@@ -106,6 +106,156 @@ def sign_out() -> dict:
     return _power(["shutdown", "/l"], "Signing out…")
 
 
+# ---------- brightness (needs screen-brightness-control, else graceful) ----------
+
+def _sbc():
+    try:
+        import screen_brightness_control as sbc
+        return sbc
+    except ImportError:
+        return None
+
+
+def brightness_get() -> dict:
+    sbc = _sbc()
+    if sbc is None:
+        return {"ok": False, "message": "Brightness control isn't installed yet."}
+    try:
+        vals = sbc.get_brightness(display=0)
+        pct = int(vals[0]) if vals else 0
+        return {"ok": True, "message": f"Brightness is {pct}%.", "value": pct}
+    except Exception as e:
+        return {"ok": False, "message": f"Couldn't read brightness: {e}"}
+
+
+def brightness_set(level: int) -> dict:
+    sbc = _sbc()
+    if sbc is None:
+        return {"ok": False, "message": "Brightness control isn't installed yet."}
+    try:
+        level = max(5, min(100, int(level)))
+        sbc.set_brightness(level, display=0)
+        return {"ok": True, "message": f"Brightness set to {level}%."}
+    except Exception as e:
+        return {"ok": False, "message": f"Couldn't set brightness: {e}"}
+
+
+def brightness_step(delta: int) -> dict:
+    cur = brightness_get()
+    if not cur.get("ok"):
+        return cur
+    return brightness_set(int(cur.get("value", 50)) + int(delta))
+
+
+# ---------- foreground window control (ctypes only) ----------
+
+SW_MINIMIZE, SW_MAXIMIZE, SW_RESTORE = 6, 3, 9
+
+
+def _fg_hwnd():
+    try:
+        import ctypes
+        return ctypes.windll.user32.GetForegroundWindow()
+    except Exception:
+        return 0
+
+
+def window_minimize() -> dict:
+    try:
+        import ctypes
+        hwnd = _fg_hwnd()
+        if not hwnd:
+            return {"ok": False, "message": "No active window found."}
+        ctypes.windll.user32.ShowWindow(hwnd, SW_MINIMIZE)
+        return {"ok": True, "message": "Window minimized."}
+    except Exception as e:
+        return {"ok": False, "message": f"Couldn't minimize: {e}"}
+
+
+def window_maximize() -> dict:
+    try:
+        import ctypes
+        hwnd = _fg_hwnd()
+        if not hwnd:
+            return {"ok": False, "message": "No active window found."}
+        ctypes.windll.user32.ShowWindow(hwnd, SW_MAXIMIZE)
+        return {"ok": True, "message": "Window maximized."}
+    except Exception as e:
+        return {"ok": False, "message": f"Couldn't maximize: {e}"}
+
+
+def window_restore() -> dict:
+    try:
+        import ctypes
+        hwnd = _fg_hwnd()
+        if not hwnd:
+            return {"ok": False, "message": "No active window found."}
+        ctypes.windll.user32.ShowWindow(hwnd, SW_RESTORE)
+        return {"ok": True, "message": "Window restored."}
+    except Exception as e:
+        return {"ok": False, "message": f"Couldn't restore: {e}"}
+
+
+def _iter_windows() -> list[tuple[int, str]]:
+    """[(hwnd, title)] visible top-level windows with titles."""
+    out: list[tuple[int, str]] = []
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32
+
+        @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        def _cb(hwnd, _lp):
+            try:
+                if not user32.IsWindowVisible(hwnd):
+                    return True
+                n = user32.GetWindowTextLengthW(hwnd)
+                if n <= 0 or n > 200:
+                    return True
+                buf = ctypes.create_unicode_buffer(n + 1)
+                user32.GetWindowTextW(hwnd, buf, n + 1)
+                title = buf.value.strip()
+                if title:
+                    out.append((hwnd, title))
+            except Exception:
+                pass
+            return True
+
+        user32.EnumWindows(_cb, 0)
+    except Exception:
+        pass
+    return out
+
+
+def window_list(limit: int = 8) -> dict:
+    wins = _iter_windows()
+    if not wins:
+        return {"ok": False, "message": "Couldn't see open windows."}
+    names = [t[:50] for _, t in wins[:limit]]
+    return {"ok": True, "message": "Open: " + " | ".join(names),
+            "results": names}
+
+
+def window_focus(name: str) -> dict:
+    key = (name or "").lower().strip()
+    if not key:
+        return {"ok": False, "message": "Switch to which window?"}
+    wins = _iter_windows()
+    hit = next((h for h, t in wins if key in t.lower()), None)
+    if hit is None:
+        hit = next((h for h, t in wins
+                    if any(w in t.lower() for w in key.split())), None)
+    if hit is None:
+        return {"ok": False, "message": f"No window matching '{name}'."}
+    try:
+        import ctypes
+        ctypes.windll.user32.ShowWindow(hit, SW_RESTORE)
+        ctypes.windll.user32.SetForegroundWindow(hit)
+        return {"ok": True, "message": f"Switched to {name}."}
+    except Exception as e:
+        return {"ok": False, "message": f"Couldn't switch: {e}"}
+
+
 # ---------- volume / media (all safe, instant) ----------
 
 def volume_up() -> dict:
